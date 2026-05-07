@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/.gitignore .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/.env.example .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/.dockerignore .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/.python-version .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/Dockerfile .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/alembic .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/grafana .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/prometheus .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/scripts .)",
+      "Bash(cp -r fastapi-langgraph-agent-production-ready-template/evals .)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['app/core/tools/base.py', 'app/core/agent/state.py', 'app/core/agent/loop.py', 'app/core/observability.py', 'app/services/session_naming.py']]; print\\('All files parse OK'\\)\")",
+      "Bash(/e/ProgramData/Anaconda3/python.exe -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['app/core/tools/base.py', 'app/core/agent/state.py', 'app/core/agent/loop.py', 'app/core/observability.py', 'app/services/session_naming.py']]; print\\('All files parse OK'\\)\")",
+      "Bash(/e/ProgramData/Anaconda3/python.exe -c ' *)"
+    ]
+  }
+}
