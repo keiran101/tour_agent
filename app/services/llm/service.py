@@ -118,7 +118,16 @@ class LLMService:
         except (RateLimitError, APITimeoutError, APIError):
             raise
         except OpenAIError as e:
-            logger.error("llm_call_failed", error_type=type(e).__name__, error=str(e))
+            logger.error(
+                "llm_call_failed",
+                error_type=type(e).__name__,
+                error=str(e),
+                model=config.name,
+                model_id=config.model_id,
+                message_count=len(messages),
+                has_tools=bool(tools),
+                last_message_role=messages[-1].get("role") if messages else None,
+            )
             raise
 
     async def _call_with_fallback(
@@ -162,6 +171,8 @@ class LLMService:
                     models_tried=i + 1,
                     total_models=total,
                     error=str(e),
+                    message_count=len(messages),
+                    has_tools=bool(effective_tools),
                 )
 
         raise RuntimeError(f"all {total} models failed. last error: {last_error}")

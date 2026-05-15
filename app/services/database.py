@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import QueuePool
 from sqlmodel import (
+    SQLModel,
     Session,
     col,
     create_engine,
@@ -20,6 +21,7 @@ from app.core.config import (
     settings,
 )
 from app.core.logging import logger
+from app.models.message import ChatMessage  # noqa: F401 — registers table with SQLModel metadata
 from app.models.session import Session as ChatSession
 from app.models.user import User
 
@@ -53,6 +55,11 @@ class DatabaseService:
                 pool_timeout=30,  # Connection timeout (seconds)
                 pool_recycle=1800,  # Recycle connections after 30 minutes
             )
+
+            try:
+                SQLModel.metadata.create_all(self.engine)
+            except SQLAlchemyError as e:
+                logger.warning("table_auto_create_failed", error=str(e))
 
             logger.info(
                 "database_initialized",
@@ -225,6 +232,25 @@ class DatabaseService:
             session.refresh(chat_session)
             logger.info("session_name_updated", session_id=session_id, name=name)
             return chat_session
+
+    async def save_messages(self, session_id: str, messages: list[dict]) -> None:
+        """Save a batch of OpenAI-format messages to DB."""
+        with Session(self.engine) as session:
+            for msg in messages:
+                row = ChatMessage.from_openai_message(session_id, msg)
+                session.add(row)
+            session.commit()
+        logger.debug("messages_saved", session_id=session_id, count=len(messages))
+
+    async def get_messages(self, session_id: str) -> list[dict]:
+        """Load conversation history as OpenAI-format message dicts."""
+        with Session(self.engine) as session:
+            rows = session.exec(
+                select(ChatMessage)
+                .where(col(ChatMessage.session_id) == session_id)
+                .order_by(col(ChatMessage.id))
+            ).all()
+            return [row.to_openai_message() for row in rows]
 
     def get_session_maker(self):
         """Get a session maker for creating database sessions.

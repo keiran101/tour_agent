@@ -30,6 +30,7 @@ from app.core.middleware import (
 )
 from app.core.observability import langfuse_init
 from app.services.database import database_service
+from app.services.memory import memory_service
 
 load_dotenv()
 langfuse_init()
@@ -49,6 +50,8 @@ async def lifespan(app: FastAPI):
         await cache_service.initialize()
     except Exception as e:
         logger.exception("cache_initialization_failed", error=str(e))
+
+    await memory_service.initialize()
 
     yield
 

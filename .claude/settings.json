@@ -17,7 +17,11 @@
       "Bash(git add *)",
       "Bash(python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['app/core/tools/base.py', 'app/core/agent/state.py', 'app/core/agent/loop.py', 'app/core/observability.py', 'app/services/session_naming.py']]; print\\('All files parse OK'\\)\")",
       "Bash(/e/ProgramData/Anaconda3/python.exe -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['app/core/tools/base.py', 'app/core/agent/state.py', 'app/core/agent/loop.py', 'app/core/observability.py', 'app/services/session_naming.py']]; print\\('All files parse OK'\\)\")",
-      "Bash(/e/ProgramData/Anaconda3/python.exe -c ' *)"
+      "Bash(/e/ProgramData/Anaconda3/python.exe -c ' *)",
+      "Bash(/e/ProgramData/Anaconda3/python.exe -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\), f\\) for f in ['app/services/memory.py', 'app/api/v1/chatbot.py', 'app/core/prompts/planner.md']]; print\\('syntax ok'\\)\")",
+      "Bash(/e/ProgramData/Anaconda3/python.exe -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\), f\\) for f in ['app/services/memory.py', 'app/api/v1/chatbot.py', 'app/main.py']]; print\\('syntax ok'\\)\")",
+      "Bash(/e/ProgramData/Anaconda3/python.exe -c \"from pathlib import Path; p = Path\\('app/api/v1/chatbot.py'\\).resolve\\(\\).parents[2] / 'core' / 'prompts' / 'planner.md'; print\\(p\\); print\\(p.exists\\(\\)\\)\")",
+      "Bash(docker --version)"
     ]
   }
 }

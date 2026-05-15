@@ -44,7 +44,7 @@ class LLMRegistry:
         cls._configs = [
             ModelConfig(
                 name="mimo",
-                model_id="MiMo-V2.5",
+                model_id=settings.DEFAULT_LLM_MODEL,
                 temperature=0.2,
                 max_tokens=settings.MAX_TOKENS,
             ),

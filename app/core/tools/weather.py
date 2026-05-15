@@ -13,10 +13,10 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.core.tools.base import Tool
 
-_QWEATHER_CITY_LOOKUP = "https://geoapi.qweather.com/v2/city/lookup"
-_QWEATHER_FORECAST_3D = "https://devapi.qweather.com/v7/weather/3d"
-_QWEATHER_FORECAST_7D = "https://devapi.qweather.com/v7/weather/7d"
-_QWEATHER_NOW = "https://devapi.qweather.com/v7/weather/now"
+_QWEATHER_CITY_LOOKUP = "https://n27fc3expg.re.qweatherapi.com/geo/v2/city/lookup"
+_QWEATHER_FORECAST_3D = "https://n27fc3expg.re.qweatherapi.com/v7/weather/3d"
+_QWEATHER_FORECAST_7D = "https://n27fc3expg.re.qweatherapi.com/v7/weather/7d"
+_QWEATHER_NOW = "https://n27fc3expg.re.qweatherapi.com/v7/weather/now"
 
 _TIMEOUT = httpx.Timeout(10.0)
 
