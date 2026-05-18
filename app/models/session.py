@@ -5,6 +5,7 @@ from typing import (
     Optional,
 )
 
+from sqlalchemy import Column, Text
 from sqlmodel import (
     Field,
     Relationship,
@@ -24,6 +25,7 @@ class Session(BaseModel, table=True):
         user_id: Foreign key to the user
         name: Name of the session (defaults to empty string)
         username: Display name copied from the user at session creation
+        builder_state_json: Serialized BuilderState for multi-layer planning
         created_at: When the session was created
         messages: Relationship to session messages
         user: Relationship to the session owner
@@ -33,4 +35,7 @@ class Session(BaseModel, table=True):
     user_id: int = Field(foreign_key="user.id")
     name: str = Field(default="")
     username: Optional[str] = Field(default=None)
+    builder_state_json: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True),
+    )
     user: "User" = Relationship(back_populates="sessions")

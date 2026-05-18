@@ -220,6 +220,10 @@ def setup_logging() -> None:
         handlers=[file_handler, console_handler],
     )
 
+    # Silence noisy third-party loggers that pollute stdout with HTTP request logs
+    for noisy_logger in ("httpx", "httpcore", "urllib3", "openai", "langfuse", "opentelemetry"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
     # Configure structlog based on environment
     if settings.LOG_FORMAT == "console":
         # Development-friendly console logging

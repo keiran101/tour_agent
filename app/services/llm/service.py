@@ -60,6 +60,7 @@ class LLMService:
         tools: list[dict[str, Any]] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, str] | None = None,
     ) -> ChatCompletion:
         """Call the LLM with retries and circular fallback.
 
@@ -69,13 +70,16 @@ class LLMService:
             tools: Override tools schema. None uses bound tools.
             temperature: Override temperature.
             max_tokens: Override max tokens.
+            response_format: Force output format, e.g. {"type": "json_object"}.
 
         Returns:
             ChatCompletion from the OpenAI-compatible API.
         """
         try:
             return await asyncio.wait_for(
-                self._call_with_fallback(messages, model_name, tools, temperature, max_tokens),
+                self._call_with_fallback(
+                    messages, model_name, tools, temperature, max_tokens, response_format,
+                ),
                 timeout=settings.LLM_TOTAL_TIMEOUT,
             )
         except asyncio.TimeoutError:
@@ -96,6 +100,7 @@ class LLMService:
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int,
+        response_format: dict[str, str] | None = None,
     ) -> ChatCompletion:
         """Single LLM invocation with retry."""
         config = LLMRegistry.get_config(model_name)
@@ -110,6 +115,9 @@ class LLMService:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+            kwargs["parallel_tool_calls"] = True
+        if response_format:
+            kwargs["response_format"] = response_format
 
         try:
             response = await client.chat.completions.create(**kwargs)
@@ -137,6 +145,7 @@ class LLMService:
         tools: list[dict[str, Any]] | None,
         temperature: float | None,
         max_tokens: int | None,
+        response_format: dict[str, str] | None = None,
     ) -> ChatCompletion:
         """Try each registered model in turn until one succeeds."""
         all_names = LLMRegistry.get_all_names()
@@ -159,7 +168,9 @@ class LLMService:
             idx = (start + i) % total
             current_name = all_names[idx]
             try:
-                result = await self._invoke(current_name, messages, effective_tools, effective_temp, effective_max)
+                result = await self._invoke(
+                    current_name, messages, effective_tools, effective_temp, effective_max, response_format,
+                )
                 if i > 0:
                     self._current_model_index = idx
                 return result

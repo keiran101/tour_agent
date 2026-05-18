@@ -14,10 +14,7 @@ from fastapi import (
     HTTPException,
     Request,
 )
-from fastapi.security import (
-    HTTPAuthorizationCredentials,
-    HTTPBearer,
-)
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 
 from app.core.config import settings
 from app.core.limiter import limiter
@@ -45,17 +42,18 @@ from app.utils.sanitization import (
 )
 
 router = APIRouter()
-security = HTTPBearer()
+user_security = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+session_security = HTTPBearer()
 db_service = DatabaseService()
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    token: str = Depends(user_security),
 ) -> User:
     """Get the current user ID from the token.
 
     Args:
-        credentials: The HTTP authorization credentials containing the JWT token.
+        token: The JWT token extracted from the Authorization header.
 
     Returns:
         User: The user extracted from the token.
@@ -64,8 +62,7 @@ async def get_current_user(
         HTTPException: If the token is invalid or missing.
     """
     try:
-        # Sanitize token
-        token = sanitize_string(credentials.credentials)
+        token = sanitize_string(token)
 
         user_id = verify_token(token)
         if user_id is None:
@@ -101,12 +98,12 @@ async def get_current_user(
 
 
 async def get_current_session(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials = Depends(session_security),
 ) -> Session:
     """Get the current session ID from the token.
 
     Args:
-        credentials: The HTTP authorization credentials containing the JWT token.
+        credentials: The HTTP authorization credentials containing the session JWT.
 
     Returns:
         Session: The session extracted from the token.
@@ -115,7 +112,6 @@ async def get_current_session(
         HTTPException: If the token is invalid or missing.
     """
     try:
-        # Sanitize token
         token = sanitize_string(credentials.credentials)
 
         session_id = verify_token(token)
@@ -199,13 +195,16 @@ async def register_user(request: Request, user_data: UserCreate):
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(settings.RATE_LIMIT_ENDPOINTS["login"][0])
 async def login(
-    request: Request, email: str = Form(...), password: str = Form(...), grant_type: str = Form(default="password")
+    request: Request, username: str = Form(...), password: str = Form(...), grant_type: str = Form(default="password")
 ):
     """Login a user.
 
+    OAuth2 password flow uses 'username' as the field name;
+    callers should pass their email in this field.
+
     Args:
         request: The FastAPI request object for rate limiting.
-        email: User's email
+        username: User's email (OAuth2 convention uses 'username')
         password: User's password
         grant_type: Must be "password"
 
@@ -216,12 +215,9 @@ async def login(
         HTTPException: If credentials are invalid
     """
     try:
-        # Sanitize inputs
-        email = sanitize_string(email)
-        password = sanitize_string(password)
+        email = sanitize_email(username)
         grant_type = sanitize_string(grant_type)
 
-        # Verify grant type
         if grant_type != "password":
             raise HTTPException(
                 status_code=400,

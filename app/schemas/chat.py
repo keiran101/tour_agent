@@ -13,6 +13,8 @@ from pydantic import (
 )
 
 from app.schemas.base import BaseResponse
+from app.schemas.builder import BuilderResponse
+from app.schemas.gatherer import Question
 
 
 class Message(BaseModel):
@@ -72,9 +74,13 @@ class ChatResponse(BaseResponse):
 
     Attributes:
         messages: List of messages in the conversation.
+        questions: Structured questions from the Gatherer agent (empty when planning).
+        builder: Structured builder payload for interactive trip building UI.
     """
 
     messages: List[Message] = Field(..., description="List of messages in the conversation")
+    questions: List[Question] = Field(default_factory=list, description="Multiple-choice questions for user selection")
+    builder: BuilderResponse | None = Field(default=None, description="Interactive builder data for frontend rendering")
 
 
 class StreamResponse(BaseResponse):

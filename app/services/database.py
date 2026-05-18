@@ -23,6 +23,7 @@ from app.core.config import (
 from app.core.logging import logger
 from app.models.message import ChatMessage  # noqa: F401 — registers table with SQLModel metadata
 from app.models.session import Session as ChatSession
+from app.models.trip import Trip  # noqa: F401 — registers table with SQLModel metadata
 from app.models.user import User
 
 
@@ -251,6 +252,24 @@ class DatabaseService:
                 .order_by(col(ChatMessage.id))
             ).all()
             return [row.to_openai_message() for row in rows]
+
+    async def get_builder_state(self, session_id: str) -> str | None:
+        """Load serialized builder state JSON for a session."""
+        with Session(self.engine) as session:
+            chat_session = session.get(ChatSession, session_id)
+            if chat_session:
+                return chat_session.builder_state_json
+            return None
+
+    async def save_builder_state(self, session_id: str, state_json: str) -> None:
+        """Persist builder state JSON to the session row."""
+        with Session(self.engine) as session:
+            chat_session = session.get(ChatSession, session_id)
+            if chat_session:
+                chat_session.builder_state_json = state_json
+                session.add(chat_session)
+                session.commit()
+                logger.debug("builder_state_saved", session_id=session_id)
 
     def get_session_maker(self):
         """Get a session maker for creating database sessions.

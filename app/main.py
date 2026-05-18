@@ -64,6 +64,7 @@ app = FastAPI(
     version=settings.VERSION,
     description=settings.DESCRIPTION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    swagger_ui_parameters={"persistAuthorization": True},
     lifespan=lifespan,
 )
 
