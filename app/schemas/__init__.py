@@ -3,6 +3,7 @@
 from app.schemas.auth import Token
 from app.schemas.base import BaseResponse
 from app.schemas.builder import (
+    BuilderPhase,
     BuilderResponse,
     BuilderState,
     POIOption,
@@ -30,6 +31,7 @@ from app.schemas.trip import (
 __all__ = [
     "Token",
     "BaseResponse",
+    "BuilderPhase",
     "BuilderResponse",
     "BuilderState",
     "POIOption",

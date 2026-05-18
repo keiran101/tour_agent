@@ -92,6 +92,7 @@ class ArrangePayload(BaseModel):
 # ------------------------------------------------------------------
 
 BuilderLayer = Literal["select_pois", "group_days", "arrange", "confirm"]
+BuilderPhase = Literal["gathering", "select_pois", "group_days", "arrange", "confirm"]
 
 
 class BuilderResponse(BaseModel):
@@ -132,7 +133,7 @@ class StoredRequirements(BaseModel):
 class BuilderState(BaseModel):
     """Full builder state persisted in the session."""
 
-    layer: BuilderLayer = "select_pois"
+    phase: BuilderPhase = "gathering"
     requirements: StoredRequirements = Field(default_factory=StoredRequirements)
     preferences: SessionPreferences = Field(default_factory=SessionPreferences)
     all_pois: list[POIOption] = Field(default_factory=list, description="All POIs found")
