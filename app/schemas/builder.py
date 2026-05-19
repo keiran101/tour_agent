@@ -26,7 +26,7 @@ class POIOption(BaseModel):
     id: str = Field(..., description="Unique identifier (used to reference in later layers)")
     name: str
     category: Literal["attraction", "restaurant", "hotel", "shopping", "activity"]
-    brief: str = Field(..., description="One-line description")
+    brief: str = Field(default="", description="One-line description")
     reason: str = Field(default="", description="Why recommended / why not")
     meta: POIMeta = Field(default_factory=POIMeta)
 
@@ -140,6 +140,7 @@ class BuilderState(BaseModel):
     selected_ids: list[str] = Field(default_factory=list, description="User's selected POI ids")
     day_groups: list[DayGroup] = Field(default_factory=list)
     schedule: ArrangePayload | None = None
+    confirmed: bool = False
 
     def get_selected_pois(self) -> list[POIOption]:
         """Return POIOption objects for selected ids."""

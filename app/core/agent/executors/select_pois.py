@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.core.agent.executors.base import BaseExecutor, ExecutorResult
 from app.core.agent.loop import AgentLoop
 from app.core.config import settings
@@ -50,17 +52,24 @@ class SelectPOIsExecutor(BaseExecutor):
         parsed = self._parse_json_from_answer(raw_answer)
 
         if parsed is None:
-            return ExecutorResult(message=raw_answer)
+            if state.all_pois:
+                selected_set = set(state.selected_ids)
+                payload = SelectPOIsPayload(
+                    recommended=[p for p in state.all_pois if p.id in selected_set],
+                    alternatives=[p for p in state.all_pois if p.id not in selected_set],
+                )
+                builder_resp = BuilderResponse(layer="select_pois", data=payload)
+                logger.warning("select_pois_parse_failed_reusing_state", raw_preview=raw_answer[:200])
+                return ExecutorResult(
+                    message="推荐信息解析出现问题，以下是当前的推荐列表：",
+                    builder_response=builder_resp,
+                )
+            logger.warning("select_pois_parse_failed_no_state", raw_preview=raw_answer[:200])
+            return ExecutorResult(message="抱歉，景点推荐出现问题，请重新描述你的需求。")
 
         message = parsed.get("message", "")
-        recommended = [
-            POIOption(**p) for p in parsed.get("recommended", [])
-            if _valid_poi(p)
-        ]
-        alternatives = [
-            POIOption(**p) for p in parsed.get("alternatives", [])
-            if _valid_poi(p)
-        ]
+        recommended = _build_poi_list(parsed.get("recommended", []))
+        alternatives = _build_poi_list(parsed.get("alternatives", []))
 
         pref_update = parsed.get("preferences_update", {})
         if pref_update.get("inferred"):
@@ -83,5 +92,13 @@ class SelectPOIsExecutor(BaseExecutor):
         return ExecutorResult(message=message, builder_response=builder_resp)
 
 
-def _valid_poi(data: dict) -> bool:
-    return bool(data.get("id") and data.get("name") and data.get("category"))
+def _build_poi_list(items: list[dict]) -> list[POIOption]:
+    result: list[POIOption] = []
+    for p in items:
+        if not (p.get("id") and p.get("name") and p.get("category")):
+            continue
+        try:
+            result.append(POIOption(**p))
+        except (ValidationError, TypeError):
+            continue
+    return result

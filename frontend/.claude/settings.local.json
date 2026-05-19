@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/MyFiles/research/tour_agent/**)",
+      "Bash(npx create-next-app@latest frontend-temp --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-pnpm --no-turbopack)",
+      "Bash(npx shadcn@latest init -d)",
+      "Bash(pnpm add *)",
+      "Bash(npx next *)",
+      "Bash(pnpm dev *)",
+      "Bash(npx shadcn@latest add input label card sonner -y)"
+    ]
+  }
+}

@@ -13,8 +13,20 @@ from pydantic import (
 )
 
 from app.schemas.base import BaseResponse
-from app.schemas.builder import BuilderResponse
+from app.schemas.builder import BuilderResponse, DayGroup
 from app.schemas.gatherer import Question
+
+
+class BuilderAction(BaseModel):
+    """Structured action from frontend UI interactions.
+
+    Bypasses LLM intent classification for deterministic handling.
+    """
+
+    action: Literal["advance", "modify", "back"] = Field(..., description="Intent type")
+    selected_ids: list[str] = Field(default_factory=list, description="POI ids selected by user (select_pois phase)")
+    day_groups: list[DayGroup] = Field(default_factory=list, description="Reordered day groups (group_days phase)")
+    target_phase: str | None = Field(default=None, description="Phase to go back to (back action)")
 
 
 class Message(BaseModel):
@@ -60,12 +72,17 @@ class ChatRequest(BaseModel):
 
     Attributes:
         messages: List of messages in the conversation.
+        builder_action: Optional structured action from frontend UI (bypasses LLM router).
     """
 
     messages: List[Message] = Field(
         ...,
         description="List of messages in the conversation",
         min_length=1,
+    )
+    builder_action: BuilderAction | None = Field(
+        default=None,
+        description="Structured builder action from frontend UI interactions",
     )
 
 
@@ -93,6 +110,23 @@ class StreamResponse(BaseResponse):
 
     content: str = Field(default="", description="The content of the current chunk")
     done: bool = Field(default=False, description="Whether the stream is complete")
+
+
+class HistoryMessage(BaseModel):
+    """Lightweight message for conversation history display."""
+
+    role: str
+    content: str = ""
+
+
+class SessionDetailResponse(BaseResponse):
+    """Response for loading a session's conversation history."""
+
+    session_id: str
+    name: str = ""
+    phase: str = "gathering"
+    messages: list[HistoryMessage] = Field(default_factory=list)
+    builder: BuilderResponse | None = None
 
 
 class SessionTitle(BaseModel):

@@ -17,24 +17,29 @@ class ConfirmExecutor(BaseExecutor):
         messages: list[dict[str, Any]],
         state: BuilderState,
     ) -> ExecutorResult:
-        """Save finalized trip to database."""
+        """Show confirmation card, or save trip if user already confirmed."""
         if not state.schedule:
             return ExecutorResult(message="还没有完成时间安排，无法保存。")
-
-        tools = create_tool_registry(user_id=self._user_id, session_id=self._session_id)
 
         destination = state.requirements.destination
         total_days = state.requirements.duration_days or len(state.schedule.days)
         title = f"{destination}{total_days}日游"
 
+        if not state.confirmed:
+            builder_resp = BuilderResponse(layer="confirm", data=state.schedule)
+            return ExecutorResult(
+                message=f"行程安排已完成！请确认 {title} 的整体方案，确认无误后我帮你保存到行程列表。",
+                builder_response=builder_resp,
+            )
+
+        tools = create_tool_registry(user_id=self._user_id, session_id=self._session_id)
         save_args = _build_save_trip_args(state, destination, total_days, title)
         result = await tools.execute("save_trip", json.dumps(save_args, ensure_ascii=False))
 
         logger.info("confirm_saved", result=result[:200])
 
         message = f"行程已保存！{title} — 你可以随时在「我的行程」中查看和修改。"
-        builder_resp = BuilderResponse(layer="confirm", data=None)
-        return ExecutorResult(message=message, builder_response=builder_resp)
+        return ExecutorResult(message=message)
 
 
 def _build_save_trip_args(

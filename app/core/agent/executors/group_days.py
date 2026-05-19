@@ -54,7 +54,16 @@ class GroupDaysExecutor(BaseExecutor):
         parsed = self._parse_json_from_answer(raw)
 
         if parsed is None:
-            return ExecutorResult(message=raw)
+            if state.day_groups:
+                payload = GroupDaysPayload(days=state.day_groups, suggestion="")
+                builder_resp = BuilderResponse(layer="group_days", data=payload)
+                logger.warning("group_days_parse_failed_reusing_state", raw_preview=raw[:200])
+                return ExecutorResult(
+                    message="分组信息解析出现问题，以下是当前的分组方案：",
+                    builder_response=builder_resp,
+                )
+            logger.warning("group_days_parse_failed_no_state", raw_preview=raw[:200])
+            return ExecutorResult(message="抱歉，分组方案生成出现问题，请稍后重试。")
 
         message = parsed.get("message", "")
         suggestion = parsed.get("suggestion", "")

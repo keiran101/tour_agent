@@ -56,7 +56,15 @@ class ArrangeExecutor(BaseExecutor):
         parsed = self._parse_json_from_answer(raw_answer)
 
         if parsed is None:
-            return ExecutorResult(message=raw_answer)
+            if state.schedule:
+                builder_resp = BuilderResponse(layer="arrange", data=state.schedule)
+                logger.warning("arrange_parse_failed_reusing_state", raw_preview=raw_answer[:200])
+                return ExecutorResult(
+                    message="时间安排解析出现问题，以下是当前的安排方案：",
+                    builder_response=builder_resp,
+                )
+            logger.warning("arrange_parse_failed_no_state", raw_preview=raw_answer[:200])
+            return ExecutorResult(message="抱歉，时间安排生成出现问题，请稍后重试。")
 
         message = parsed.get("message", "")
 

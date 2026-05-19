@@ -275,67 +275,38 @@ async def create_session(user: User = Depends(get_current_user)):
 
 @router.patch("/session/{session_id}/name", response_model=SessionResponse)
 async def update_session_name(
-    session_id: str, name: str = Form(...), current_session: Session = Depends(get_current_session)
+    session_id: str,
+    name: str = Form(...),
+    user: User = Depends(get_current_user),
 ):
-    """Update a session's name.
+    """Update a session's name. Requires user JWT — operates on any owned session."""
+    sanitized_session_id = sanitize_string(session_id)
+    sanitized_name = sanitize_string(name)
 
-    Args:
-        session_id: The ID of the session to update
-        name: The new name for the session
-        current_session: The current session from auth
+    target = await db_service.get_session(sanitized_session_id)
+    if not target or target.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
 
-    Returns:
-        SessionResponse: The updated session information
-    """
-    try:
-        # Sanitize inputs
-        sanitized_session_id = sanitize_string(session_id)
-        sanitized_name = sanitize_string(name)
-        sanitized_current_session = sanitize_string(current_session.id)
+    session = await db_service.update_session_name(sanitized_session_id, sanitized_name)
+    token = create_access_token(sanitized_session_id)
 
-        # Verify the session ID matches the authenticated session
-        if sanitized_session_id != sanitized_current_session:
-            raise HTTPException(status_code=403, detail="Cannot modify other sessions")
-
-        # Update the session name
-        session = await db_service.update_session_name(sanitized_session_id, sanitized_name)
-
-        # Create a new token (not strictly necessary but maintains consistency)
-        token = create_access_token(sanitized_session_id)
-
-        return SessionResponse(session_id=sanitized_session_id, name=session.name, token=token)
-    except ValueError as ve:
-        logger.exception("session_update_validation_failed", error=str(ve), session_id=session_id)
-        raise HTTPException(status_code=422, detail=str(ve))
+    return SessionResponse(session_id=sanitized_session_id, name=session.name, token=token)
 
 
 @router.delete("/session/{session_id}")
-async def delete_session(session_id: str, current_session: Session = Depends(get_current_session)):
-    """Delete a session for the authenticated user.
+async def delete_session(
+    session_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Delete a session. Requires user JWT — operates on any owned session."""
+    sanitized_session_id = sanitize_string(session_id)
 
-    Args:
-        session_id: The ID of the session to delete
-        current_session: The current session from auth
+    target = await db_service.get_session(sanitized_session_id)
+    if not target or target.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
 
-    Returns:
-        None
-    """
-    try:
-        # Sanitize inputs
-        sanitized_session_id = sanitize_string(session_id)
-        sanitized_current_session = sanitize_string(current_session.id)
-
-        # Verify the session ID matches the authenticated session
-        if sanitized_session_id != sanitized_current_session:
-            raise HTTPException(status_code=403, detail="Cannot delete other sessions")
-
-        # Delete the session
-        await db_service.delete_session(sanitized_session_id)
-
-        logger.info("session_deleted", session_id=session_id, user_id=current_session.user_id)
-    except ValueError as ve:
-        logger.exception("session_deletion_validation_failed", error=str(ve), session_id=session_id)
-        raise HTTPException(status_code=422, detail=str(ve))
+    await db_service.delete_session(sanitized_session_id)
+    logger.info("session_deleted", session_id=sanitized_session_id, user_id=user.id)
 
 
 @router.get("/sessions", response_model=List[SessionResponse])

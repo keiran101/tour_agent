@@ -16,17 +16,25 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
-from app.api.v1.auth import get_current_session
+from app.api.v1.auth import get_current_session, get_current_user
 from app.core.agent.orchestrator import TripOrchestrator
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.core.logging import logger
 from app.models.session import Session
-from app.schemas.builder import BuilderState
+from app.models.user import User
+from app.schemas.builder import (
+    BuilderResponse,
+    BuilderState,
+    GroupDaysPayload,
+    SelectPOIsPayload,
+)
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
+    HistoryMessage,
     Message,
+    SessionDetailResponse,
 )
 from app.services.database import database_service
 from app.services.llm.service import llm_service
@@ -101,7 +109,7 @@ async def chat(
             session_id=session.id,
         )
 
-        result = await orchestrator.handle(messages, state)
+        result = await orchestrator.handle(messages, state, chat_request.builder_action)
 
         await _save_state(session.id, state)
         await _save_turn(session.id, new_user_content, result.message)
@@ -142,7 +150,7 @@ async def chat_stream(
 
     async def generator():
         try:
-            result = await orchestrator.handle(messages, state)
+            result = await orchestrator.handle(messages, state, chat_request.builder_action)
 
             if result.questions:
                 event = {
@@ -152,15 +160,17 @@ async def chat_stream(
                 }
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
-            if result.builder_response:
+            elif result.builder_response:
                 builder_event = {
                     "type": "builder",
+                    "content": result.message,
                     "layer": result.builder_response.layer,
                     "data": result.builder_response.data.model_dump() if result.builder_response.data else None,
                 }
                 yield f"data: {json.dumps(builder_event, ensure_ascii=False)}\n\n"
 
-            yield f"data: {json.dumps({'type': 'answer', 'content': result.message}, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'answer', 'content': result.message}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
 
             await _save_state(session_id, state)
@@ -175,3 +185,58 @@ async def chat_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ------------------------------------------------------------------
+# Session detail (conversation history)
+# ------------------------------------------------------------------
+
+@router.get("/sessions/{session_id}", response_model=SessionDetailResponse)
+async def get_session_messages(
+    session_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Load conversation history and current builder state for a session."""
+    session = await database_service.get_session(session_id)
+    if not session or session.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    history = await _load_history(session_id)
+    state = await _load_state(session_id)
+
+    messages = [
+        HistoryMessage(role=m["role"], content=m.get("content", ""))
+        for m in history
+        if m.get("role") in ("user", "assistant")
+    ]
+
+    return SessionDetailResponse(
+        session_id=session_id,
+        name=session.name,
+        phase=state.phase,
+        messages=messages,
+        builder=_state_to_builder_response(state),
+    )
+
+
+def _state_to_builder_response(state: BuilderState) -> BuilderResponse | None:
+    """Reconstruct the current phase's BuilderResponse from persisted state."""
+    if state.phase == "gathering":
+        return None
+    if state.phase == "select_pois":
+        selected_set = set(state.selected_ids)
+        return BuilderResponse(
+            layer="select_pois",
+            data=SelectPOIsPayload(
+                recommended=[p for p in state.all_pois if p.id in selected_set],
+                alternatives=[p for p in state.all_pois if p.id not in selected_set],
+            ),
+        )
+    if state.phase == "group_days":
+        return BuilderResponse(
+            layer="group_days",
+            data=GroupDaysPayload(days=state.day_groups),
+        )
+    if state.phase in ("arrange", "confirm"):
+        return BuilderResponse(layer=state.phase, data=state.schedule)
+    return None
