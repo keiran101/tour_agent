@@ -17,18 +17,14 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 
 from app.api.v1.auth import get_current_session, get_current_user
+from app.core.agent.executors.base import ExecutorResult
 from app.core.agent.orchestrator import TripOrchestrator
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.core.logging import logger
 from app.models.session import Session
 from app.models.user import User
-from app.schemas.builder import (
-    BuilderResponse,
-    BuilderState,
-    GroupDaysPayload,
-    SelectPOIsPayload,
-)
+from app.schemas.builder import BuilderState
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -55,11 +51,16 @@ async def _load_history(session_id: str) -> list[dict]:
         return []
 
 
-async def _save_turn(session_id: str, user_content: str, assistant_content: str) -> None:
+async def _save_turn(session_id: str, user_content: str, result: ExecutorResult) -> None:
     try:
+        assistant_msg: dict = {"role": "assistant", "content": result.message}
+        if result.questions:
+            assistant_msg["questions"] = [q.model_dump() for q in result.questions]
+        if result.builder_response:
+            assistant_msg["builder"] = result.builder_response.model_dump()
         await database_service.save_messages(session_id, [
             {"role": "user", "content": user_content},
-            {"role": "assistant", "content": assistant_content},
+            assistant_msg,
         ])
     except Exception as e:
         logger.warning("history_save_failed", session_id=session_id, error=str(e))
@@ -112,7 +113,7 @@ async def chat(
         result = await orchestrator.handle(messages, state, chat_request.builder_action)
 
         await _save_state(session.id, state)
-        await _save_turn(session.id, new_user_content, result.message)
+        await _save_turn(session.id, new_user_content, result)
 
         return ChatResponse(
             messages=[Message(role="assistant", content=result.message)],
@@ -174,7 +175,7 @@ async def chat_stream(
             yield "data: [DONE]\n\n"
 
             await _save_state(session_id, state)
-            await _save_turn(session_id, new_user_content, result.message)
+            await _save_turn(session_id, new_user_content, result)
 
         except Exception as e:
             logger.exception("stream_failed", session_id=session_id, error=str(e))
@@ -201,11 +202,20 @@ async def get_session_messages(
     if not session or session.user_id != user.id:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    history = await _load_history(session_id)
+    try:
+        history = await database_service.get_display_messages(session_id)
+    except Exception as e:
+        logger.warning("display_history_load_failed", session_id=session_id, error=str(e))
+        history = []
     state = await _load_state(session_id)
 
     messages = [
-        HistoryMessage(role=m["role"], content=m.get("content", ""))
+        HistoryMessage(
+            role=m["role"],
+            content=m.get("content", ""),
+            questions=m.get("questions"),
+            builder=m.get("builder"),
+        )
         for m in history
         if m.get("role") in ("user", "assistant")
     ]
@@ -215,28 +225,4 @@ async def get_session_messages(
         name=session.name,
         phase=state.phase,
         messages=messages,
-        builder=_state_to_builder_response(state),
     )
-
-
-def _state_to_builder_response(state: BuilderState) -> BuilderResponse | None:
-    """Reconstruct the current phase's BuilderResponse from persisted state."""
-    if state.phase == "gathering":
-        return None
-    if state.phase == "select_pois":
-        selected_set = set(state.selected_ids)
-        return BuilderResponse(
-            layer="select_pois",
-            data=SelectPOIsPayload(
-                recommended=[p for p in state.all_pois if p.id in selected_set],
-                alternatives=[p for p in state.all_pois if p.id not in selected_set],
-            ),
-        )
-    if state.phase == "group_days":
-        return BuilderResponse(
-            layer="group_days",
-            data=GroupDaysPayload(days=state.day_groups),
-        )
-    if state.phase in ("arrange", "confirm"):
-        return BuilderResponse(layer=state.phase, data=state.schedule)
-    return None

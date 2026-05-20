@@ -244,7 +244,7 @@ class DatabaseService:
         logger.debug("messages_saved", session_id=session_id, count=len(messages))
 
     async def get_messages(self, session_id: str) -> list[dict]:
-        """Load conversation history as OpenAI-format message dicts."""
+        """Load conversation history as OpenAI-format message dicts (for LLM)."""
         with Session(self.engine) as session:
             rows = session.exec(
                 select(ChatMessage)
@@ -252,6 +252,16 @@ class DatabaseService:
                 .order_by(col(ChatMessage.id))
             ).all()
             return [row.to_openai_message() for row in rows]
+
+    async def get_display_messages(self, session_id: str) -> list[dict]:
+        """Load conversation history with UI metadata (for frontend display)."""
+        with Session(self.engine) as session:
+            rows = session.exec(
+                select(ChatMessage)
+                .where(col(ChatMessage.session_id) == session_id)
+                .order_by(col(ChatMessage.id))
+            ).all()
+            return [row.to_display_dict() for row in rows]
 
     async def get_builder_state(self, session_id: str) -> str | None:
         """Load serialized builder state JSON for a session."""

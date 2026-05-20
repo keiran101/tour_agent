@@ -31,7 +31,10 @@ def get_langfuse() -> Langfuse:
 def langfuse_init() -> None:
     """Initialize Langfuse and verify authentication."""
     client = get_langfuse()
-    if client.auth_check():
-        logger.debug("langfuse_auth_success")
-    else:
-        logger.debug("langfuse_auth_failure")
+    try:
+        if client.auth_check():
+            logger.debug("langfuse_auth_success")
+        else:
+            logger.warning("langfuse_auth_failure")
+    except Exception as e:
+        logger.warning("langfuse_auth_error", error=str(e))

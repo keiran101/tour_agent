@@ -113,10 +113,12 @@ class StreamResponse(BaseResponse):
 
 
 class HistoryMessage(BaseModel):
-    """Lightweight message for conversation history display."""
+    """Message for conversation history display, including structured data."""
 
     role: str
     content: str = ""
+    questions: list[Question] | None = None
+    builder: BuilderResponse | None = None
 
 
 class SessionDetailResponse(BaseResponse):
@@ -126,7 +128,6 @@ class SessionDetailResponse(BaseResponse):
     name: str = ""
     phase: str = "gathering"
     messages: list[HistoryMessage] = Field(default_factory=list)
-    builder: BuilderResponse | None = None
 
 
 class SessionTitle(BaseModel):
