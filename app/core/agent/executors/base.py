@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+
+import json_repair
 
 from app.core.logging import logger
 from app.schemas.builder import (
@@ -18,68 +19,22 @@ from app.schemas.gatherer import Question
 from app.services.llm.service import LLMService
 from app.services.memory import MemoryService
 
-_TRAILING_COMMA = re.compile(r",\s*([}\]])")
-
 
 def _try_parse_json(text: str) -> dict[str, Any] | None:
-    """Try to parse JSON, repairing common LLM mistakes (trailing commas, truncation)."""
+    """Try to parse JSON, using json_repair for common LLM mistakes."""
     if not text:
         return None
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
         logger.debug("json_parse_attempt_raw", error=str(e), pos=e.pos, text_around=text[max(0, (e.pos or 0) - 30):(e.pos or 0) + 30])
-    # Strip trailing commas before } or ]
-    cleaned = _TRAILING_COMMA.sub(r"\1", text)
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
+        result = json_repair.loads(text)
+        if isinstance(result, dict):
+            return result
+    except Exception:
         pass
-    # Truncated response: try closing open brackets/braces
-    repaired = _close_truncated_json(cleaned)
-    if repaired != cleaned:
-        try:
-            return json.loads(repaired)
-        except json.JSONDecodeError:
-            pass
     return None
-
-
-def _close_truncated_json(text: str) -> str:
-    """Best-effort: close unclosed brackets/braces at end of truncated JSON."""
-    # Trim trailing partial tokens (incomplete string, key, etc.)
-    text = text.rstrip()
-    if text and text[-1] not in "]}\"0123456789truefalsn":
-        text = text.rsplit(",", 1)[0] if "," in text else text
-    # Strip dangling comma
-    text = text.rstrip().rstrip(",")
-    # Count unclosed openers
-    stack: list[str] = []
-    in_string = False
-    escape = False
-    for ch in text:
-        if escape:
-            escape = False
-            continue
-        if ch == "\\":
-            escape = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch in "{[":
-            stack.append("}" if ch == "{" else "]")
-        elif ch in "}]" and stack:
-            stack.pop()
-    # If we're inside a string, close it first
-    if in_string:
-        text += '"'
-    # Close remaining openers
-    while stack:
-        text += stack.pop()
-    return text
 
 
 @dataclass

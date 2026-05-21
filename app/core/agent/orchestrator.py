@@ -15,7 +15,7 @@ from app.core.agent.executors import (
 )
 from app.core.agent.router import IntentRouter, RouterResult
 from app.core.logging import logger
-from app.schemas.builder import BuilderPhase, BuilderState, POIOption
+from app.schemas.builder import BuilderPhase, BuilderResponse, BuilderState, POIOption, SelectPOIsPayload, GroupDaysPayload
 from app.schemas.chat import BuilderAction
 from app.services.llm.service import LLMService
 from app.services.memory import MemoryService
@@ -25,6 +25,7 @@ TRANSITIONS: dict[str, dict[str, BuilderPhase]] = {
     "select_pois": {"advance": "group_days",  "back": "gathering"},
     "group_days":  {"advance": "arrange",     "back": "select_pois"},
     "arrange":     {"advance": "confirm",     "back": "group_days"},
+    "confirm":     {"back": "arrange"},
 }
 
 
@@ -120,6 +121,14 @@ class TripOrchestrator:
                 if fallback:
                     state.phase = fallback
 
+            existing = _get_existing_phase_data(state)
+            if existing is not None:
+                logger.info("back_reuse_existing", phase=state.phase)
+                return ExecutorResult(
+                    message="已返回，你可以告诉我需要调整什么。",
+                    builder_response=existing,
+                )
+
         return await self._executors[state.phase].run(messages, state)
 
 
@@ -151,6 +160,24 @@ def _ensure_phase_prerequisites(state: BuilderState) -> None:
     if state.phase == "confirm" and not state.schedule:
         logger.info("prerequisite_fallback", from_phase=state.phase, to_phase="arrange", reason="no schedule")
         state.phase = "arrange"
+
+
+def _get_existing_phase_data(state: BuilderState) -> BuilderResponse | None:
+    """Return existing BuilderResponse for the current phase, if data is available."""
+    if state.phase == "arrange" and state.schedule and state.schedule.days:
+        return BuilderResponse(layer="arrange", data=state.schedule)
+    if state.phase == "group_days" and state.day_groups:
+        return BuilderResponse(layer="group_days", data=GroupDaysPayload(groups=state.day_groups))
+    if state.phase == "select_pois" and state.all_pois:
+        selected = set(state.selected_ids)
+        return BuilderResponse(
+            layer="select_pois",
+            data=SelectPOIsPayload(
+                recommended=[p for p in state.all_pois if p.id in selected],
+                alternatives=[p for p in state.all_pois if p.id not in selected],
+            ),
+        )
+    return None
 
 
 def _action_to_intent(action: BuilderAction) -> RouterResult:

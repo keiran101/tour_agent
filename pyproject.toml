@@ -40,6 +40,7 @@ dependencies = [
     "tenacity>=9.1.2",
     "uvloop>=0.22.1; platform_system != 'Windows'",
     "rich>=15.0.0",
+    "json-repair>=0.59.10",
 ]
 
 [project.optional-dependencies]
