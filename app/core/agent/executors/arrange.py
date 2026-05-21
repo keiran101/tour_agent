@@ -55,6 +55,10 @@ class ArrangeExecutor(BaseExecutor):
         raw_answer = agent_state.final_answer or ""
         parsed = self._parse_json_from_answer(raw_answer)
 
+        if parsed is None and raw_answer:
+            logger.info("arrange_json_retry", raw_preview=raw_answer[:200])
+            parsed = await self._retry_json_with_llm(raw_answer, system_prompt)
+
         if parsed is None:
             if state.schedule:
                 builder_resp = BuilderResponse(layer="arrange", data=state.schedule)

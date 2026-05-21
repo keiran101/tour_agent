@@ -36,7 +36,7 @@ let msgCounter = 0;
 
 export const useChatStore = create<ChatState>()((set) => ({
   messages: [],
-  phase: "gathering",
+  phase: "chat",
   isLoading: false,
   streamingContent: "",
 
@@ -65,7 +65,7 @@ export const useChatStore = create<ChatState>()((set) => ({
   setStreamingContent: (streamingContent) => set({ streamingContent }),
   appendStreamingContent: (chunk) =>
     set((state) => ({ streamingContent: state.streamingContent + chunk })),
-  clearMessages: () => set({ messages: [], phase: "gathering", streamingContent: "" }),
+  clearMessages: () => set({ messages: [], phase: "chat", streamingContent: "" }),
 
   loadSession: (detail) => {
     const msgs: ChatMessage[] = detail.messages.map((m) => ({

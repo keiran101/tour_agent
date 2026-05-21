@@ -21,6 +21,7 @@ export default function ChatPage() {
     setStreamingContent,
     appendStreamingContent,
     setPhase,
+    phase,
   } = useChatStore();
   const sessionToken = useAuthStore((s) => s.sessionToken);
   const abortRef = useRef<AbortController | null>(null);
@@ -52,6 +53,7 @@ export default function ChatPage() {
           switch (event.type) {
             case "answer":
               appendStreamingContent(event.content);
+              setPhase("chat");
               break;
             case "gathering":
               addMessage({
@@ -150,7 +152,7 @@ export default function ChatPage() {
       </div>
 
       {/* Input */}
-      <ChatInput onSend={handleSend} disabled={isLoading} />
+      <ChatInput onSend={handleSend} disabled={isLoading || phase === "confirm"} />
     </div>
   );
 }

@@ -86,6 +86,12 @@ class TripOrchestrator:
             if pref not in state.preferences.inferred:
                 state.preferences.inferred.append(pref)
 
+        if state.phase == "confirm" and intent.action == "modify":
+            intent.action = "back"
+            if not intent.target_phase:
+                intent.target_phase = "arrange"
+            logger.info("confirm_modify_to_back", target=intent.target_phase)
+
         if intent.action == "advance":
             # Structured UI action: use IDs/groups directly
             if builder_action and builder_action.selected_ids:
@@ -113,7 +119,7 @@ class TripOrchestrator:
                 if new_phase:
                     state.phase = new_phase
         elif intent.action == "back":
-            state.confirmed = False
+            old_phase = state.phase
             if intent.target_phase in self._executors:
                 state.phase = intent.target_phase  # type: ignore[assignment]
             else:
@@ -121,9 +127,11 @@ class TripOrchestrator:
                 if fallback:
                     state.phase = fallback
 
+            _clear_downstream_state(state)
+            logger.info("back_cleared", from_phase=old_phase, to_phase=state.phase)
+
             existing = _get_existing_phase_data(state)
             if existing is not None:
-                logger.info("back_reuse_existing", phase=state.phase)
                 return ExecutorResult(
                     message="已返回，你可以告诉我需要调整什么。",
                     builder_response=existing,
@@ -162,12 +170,32 @@ def _ensure_phase_prerequisites(state: BuilderState) -> None:
         state.phase = "arrange"
 
 
+_PHASE_ORDER: list[BuilderPhase] = [
+    "gathering", "select_pois", "group_days", "arrange", "confirm",
+]
+
+
+def _clear_downstream_state(state: BuilderState) -> None:
+    """Clear all state data belonging to phases after the current phase."""
+    idx = _PHASE_ORDER.index(state.phase)
+    downstream = set(_PHASE_ORDER[idx + 1:])
+    if "select_pois" in downstream:
+        state.all_pois = []
+        state.selected_ids = []
+    if "group_days" in downstream:
+        state.day_groups = []
+    if "arrange" in downstream:
+        state.schedule = None
+    if "confirm" in downstream:
+        state.confirmed = False
+
+
 def _get_existing_phase_data(state: BuilderState) -> BuilderResponse | None:
     """Return existing BuilderResponse for the current phase, if data is available."""
     if state.phase == "arrange" and state.schedule and state.schedule.days:
         return BuilderResponse(layer="arrange", data=state.schedule)
     if state.phase == "group_days" and state.day_groups:
-        return BuilderResponse(layer="group_days", data=GroupDaysPayload(groups=state.day_groups))
+        return BuilderResponse(layer="group_days", data=GroupDaysPayload(days=state.day_groups))
     if state.phase == "select_pois" and state.all_pois:
         selected = set(state.selected_ids)
         return BuilderResponse(

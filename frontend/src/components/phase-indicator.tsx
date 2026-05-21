@@ -15,7 +15,7 @@ const PHASES: { key: BuilderPhase; label: string }[] = [
 export default function PhaseIndicator() {
   const phase = useChatStore((s) => s.phase);
 
-  if (!phase) return null;
+  if (!phase || phase === "chat") return null;
 
   const currentIdx = PHASES.findIndex((p) => p.key === phase);
 

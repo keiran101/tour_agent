@@ -117,6 +117,37 @@ class BaseExecutor(ABC):
             lines.append(f"- 特殊需求: {req.special_requests}")
         return "\n".join(lines)
 
+    async def _retry_json_with_llm(
+        self,
+        raw_output: str,
+        system_prompt: str,
+    ) -> dict[str, Any] | None:
+        """Send failed output back to LLM for self-correction."""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "assistant", "content": raw_output},
+            {"role": "user", "content": (
+                "你的回复不是合法的 JSON，无法解析。请将上面的内容转换为要求的 JSON 格式输出，"
+                "只输出 JSON，不要包含任何其他文字。"
+            )},
+        ]
+        try:
+            response = await self._llm.call(
+                messages=messages,
+                temperature=0.1,
+                max_tokens=4096,
+            )
+            text = response.choices[0].message.content or ""
+            result = self._parse_json_from_answer(text)
+            if result is not None:
+                logger.info("json_retry_succeeded")
+            else:
+                logger.warning("json_retry_still_failed", text_preview=text[:200])
+            return result
+        except Exception as e:
+            logger.error("json_retry_error", error=str(e))
+            return None
+
     @staticmethod
     def _parse_json_from_answer(text: str) -> dict[str, Any] | None:
         text = text.strip()

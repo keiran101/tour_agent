@@ -67,7 +67,7 @@ export interface Question {
 }
 
 export type BuilderLayer = "select_pois" | "group_days" | "arrange" | "confirm";
-export type BuilderPhase = "gathering" | BuilderLayer;
+export type BuilderPhase = "chat" | "gathering" | BuilderLayer;
 
 export interface BuilderResponse {
   layer: BuilderLayer;
