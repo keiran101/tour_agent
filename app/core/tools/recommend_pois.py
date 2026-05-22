@@ -64,7 +64,11 @@ class RecommendPoisTool(InteractiveTool):
 
     async def run(self, args: dict[str, Any], state: TripPlanningState) -> ToolResult:
         if not state.requirements.destination:
-            return ToolResult(content="还没有目的地信息，请先调用 ask_user 收集需求。")
+            return ToolResult(content="错误：还没有目的地信息，请先调用 ask_user 收集需求。")
+        if state.selected_pois and not args.get("focus"):
+            return ToolResult(
+                content="景点已推荐且用户已选择，无需重复。请调用 present_groups 进行分天。"
+            )
 
         system_prompt = self._build_prompt(state, args.get("focus", ""))
 

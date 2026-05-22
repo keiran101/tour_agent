@@ -120,7 +120,7 @@ class AgentLoop:
         )
         root_span.end()
 
-        await self._memory.add(user_id, state.messages)
+        await self._memory.add(user_id, state.messages, llm=self._llm, session_id=session_id)
 
         return state
 
@@ -240,7 +240,7 @@ class AgentLoop:
 
         root_span.update_trace(output=state.final_answer)
         root_span.end()
-        await self._memory.add(user_id, state.messages)
+        await self._memory.add(user_id, state.messages, llm=self._llm, session_id=session_id)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -336,20 +336,8 @@ class AgentLoop:
     async def _build_system_prompt(
         self, user_id: str | None, user_messages: list[dict[str, Any]]
     ) -> str:
-        """Build system prompt with long-term memory context injected."""
-        query = ""
-        for msg in reversed(user_messages):
-            if msg.get("role") == "user":
-                query = msg.get("content", "")
-                break
-
-        memory_context = await self._memory.search(user_id, query)
-
-        parts = [self._system_prompt]
-        if memory_context:
-            parts.append(f"\n## What you know about this user\n{memory_context}")
-
-        return "\n".join(parts)
+        """Build system prompt."""
+        return self._system_prompt
 
     async def _force_final_answer(
         self, state: AgentState, model_name: str | None, parent_span: Any = None,

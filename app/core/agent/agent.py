@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pydantic import BaseModel
 
@@ -17,7 +17,7 @@ from app.core.agent.state import AgentState, TripPlanningState
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.observability import get_langfuse
-from app.core.tools.base import ToolRegistry, ToolResult
+from app.core.tools.base import Tool, ToolRegistry, ToolResult
 from app.schemas.builder import DayGroup
 from app.schemas.chat import BuilderAction
 from app.schemas.gatherer import Question
@@ -28,6 +28,17 @@ from app.utils.graph import extract_text_content
 _AGENT_PROMPT = (
     Path(__file__).resolve().parents[1] / "prompts" / "agent_system.md"
 ).read_text(encoding="utf-8")
+
+# --- Dynamic tool gating ---------------------------------------------------
+# Interactive tools are only exposed when their preconditions are met.
+# Internal tools (no entry here) are always available.
+_TOOL_GATES: dict[str, Callable[[TripPlanningState], bool]] = {
+    "ask_user":          lambda s: not s.requirements.destination,
+    "recommend_pois":    lambda s: bool(s.requirements.destination) and not s.selected_pois,
+    "present_groups":    lambda s: bool(s.selected_pois) and not s.day_groups,
+    "arrange_schedule":  lambda s: bool(s.day_groups) and s.schedule is None,
+    "confirm_trip":      lambda s: s.schedule is not None and not s.trip_saved,
+}
 
 
 @dataclass
@@ -94,16 +105,13 @@ class TripAgent:
         for msg in messages:
             loop_state.add_message(msg["role"], msg.get("content", ""))
 
-        tools_schema = self._tools.get_openai_schemas() or None
-
         logger.info(
             "trip_agent_started",
             session_id=self._session_id,
             state_summary=state.summary(),
-            tool_count=len(tools_schema) if tools_schema else 0,
         )
 
-        response = await self._react_loop(loop_state, state, tools_schema, root_span)
+        response = await self._react_loop(loop_state, state, root_span)
 
         elapsed = round(time.monotonic() - start, 2)
         logger.info(
@@ -135,11 +143,21 @@ class TripAgent:
         self,
         loop_state: AgentState,
         state: TripPlanningState,
-        tools_schema: list[dict[str, Any]] | None,
         root_span: Any,
     ) -> AgentResponse:
         while loop_state.step < self._max_steps and not loop_state.is_done:
             loop_state.step += 1
+
+            tools_schema = self._get_available_tools_schema(state)
+            loop_state.messages[0]["content"] = await self._build_system_prompt(
+                state, [],
+            )
+            logger.debug(
+                "react_step_tools",
+                step=loop_state.step,
+                available_tools=[t["function"]["name"] for t in tools_schema] if tools_schema else [],
+            )
+
             step_span = root_span.start_span(name=f"step_{loop_state.step}")
 
             generation = step_span.start_generation(
@@ -210,6 +228,29 @@ class TripAgent:
             return AgentResponse(type="answer", content=answer)
 
         return AgentResponse(type="answer", content=loop_state.final_answer or "")
+
+    # ------------------------------------------------------------------
+    # Dynamic tool filtering
+    # ------------------------------------------------------------------
+
+    def _get_available_tools_schema(
+        self, state: TripPlanningState,
+    ) -> list[dict[str, Any]] | None:
+        """Only expose tools that are valid given the current state.
+
+        Shrinks the LLM's decision space so it can't pick the wrong tool.
+        Internal tools (web_search, poi_search, weather_query, route_calculator)
+        are always available. Interactive tools are gated by data dependencies.
+        """
+        available: list[Tool] = []
+
+        for tool in self._tools.get_all():
+            gate = _TOOL_GATES.get(tool.name)
+            if gate is None or gate(state):
+                available.append(tool)
+
+        schemas = [t.to_openai_schema() for t in available]
+        return schemas or None
 
     # ------------------------------------------------------------------
     # Builder action processing
@@ -297,18 +338,10 @@ class TripAgent:
         state: TripPlanningState,
         messages: list[dict[str, Any]],
     ) -> str:
-        query = ""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                query = msg.get("content", "")
-                break
-
-        memory_context = await self._memory.search(
-            str(self._user_id) if self._user_id else None, query,
-        )
+        user_preferences = state.preferences_prompt_section() or "暂无"
 
         prompt = _AGENT_PROMPT.replace("{state_summary}", state.summary())
-        prompt = prompt.replace("{memory_context}", memory_context or "暂无")
+        prompt = prompt.replace("{user_preferences}", user_preferences)
 
         return prompt
 

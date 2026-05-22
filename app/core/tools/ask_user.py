@@ -35,12 +35,16 @@ class AskUserTool(InteractiveTool):
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
+            "user_input": {
+                "type": "string",
+                "description": "用户最新的消息原文（必须完整转述，不要概括）",
+            },
             "context": {
                 "type": "string",
-                "description": "Brief description of what information is still needed",
+                "description": "补充说明，如还缺哪些信息",
             },
         },
-        "required": [],
+        "required": ["user_input"],
     }
 
     def __init__(self, llm: LLMService) -> None:
@@ -65,7 +69,13 @@ class AskUserTool(InteractiveTool):
             return ToolResult(content="需求收集出现问题，请用户重新描述旅行需求。")
 
         if output.status == "gathering":
-            logger.info("ask_user_gathering", question_count=len(output.questions))
+            if output.requirements:
+                self._save_partial_requirements(state, output.requirements)
+            logger.info(
+                "ask_user_gathering",
+                question_count=len(output.questions),
+                destination=state.requirements.destination or "(empty)",
+            )
             return ToolResult(
                 content=output.content,
                 yield_to_user=True,
@@ -74,28 +84,40 @@ class AskUserTool(InteractiveTool):
             )
 
         # Ready — store requirements into state
-        logger.info("ask_user_ready", has_requirements=output.requirements is not None)
         if output.requirements:
-            state.requirements = StoredRequirements(
-                destination=output.requirements.destination,
-                duration_days=output.requirements.duration_days,
-                budget_level=output.requirements.budget_level,
-                travel_style=output.requirements.travel_style,
-                group_type=output.requirements.group_type,
-                pace=output.requirements.pace,
-                travel_dates=output.requirements.travel_dates,
-                special_requests=output.requirements.special_requests,
-            )
-            if output.requirements.group_type:
-                state.preferences.explicit.append(f"同行: {output.requirements.group_type}")
-            if output.requirements.pace:
-                state.preferences.explicit.append(f"节奏: {output.requirements.pace}")
-            if output.requirements.special_requests:
-                state.preferences.explicit.append(output.requirements.special_requests)
+            self._save_partial_requirements(state, output.requirements)
+        logger.info(
+            "ask_user_ready",
+            destination=state.requirements.destination or "(empty)",
+            summary=state.summary(),
+        )
 
         return ToolResult(
             content=f"需求收集完成：{state.summary()}。可以继续下一步。",
         )
+
+    @staticmethod
+    def _save_partial_requirements(
+        state: TripPlanningState, req: Any,
+    ) -> None:
+        """Merge gathered fields into state, preserving previously collected values."""
+        current = state.requirements
+        state.requirements = StoredRequirements(
+            destination=req.destination or current.destination,
+            duration_days=req.duration_days if req.duration_days else current.duration_days,
+            budget_level=req.budget_level or current.budget_level,
+            travel_style=req.travel_style or current.travel_style,
+            group_type=req.group_type or current.group_type,
+            pace=req.pace or current.pace,
+            travel_dates=req.travel_dates or current.travel_dates,
+            special_requests=req.special_requests or current.special_requests,
+        )
+        if req.group_type and f"同行: {req.group_type}" not in state.preferences.explicit:
+            state.preferences.explicit.append(f"同行: {req.group_type}")
+        if req.pace and f"节奏: {req.pace}" not in state.preferences.explicit:
+            state.preferences.explicit.append(f"节奏: {req.pace}")
+        if req.special_requests and req.special_requests not in state.preferences.explicit:
+            state.preferences.explicit.append(req.special_requests)
 
     def _build_messages(
         self, args: dict[str, Any], state: TripPlanningState,
@@ -112,7 +134,17 @@ class AskUserTool(InteractiveTool):
         if context_hint:
             parts.append(f"\n## Agent 补充\n{context_hint}")
 
-        return [{"role": "system", "content": "\n".join(parts)}]
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": "\n".join(parts)},
+        ]
+
+        user_input = args.get("user_input", "")
+        if user_input:
+            messages.append({"role": "user", "content": user_input})
+        else:
+            messages.append({"role": "user", "content": "请开始收集旅行需求。"})
+
+        return messages
 
 
 def _format_requirements(req: StoredRequirements) -> str:

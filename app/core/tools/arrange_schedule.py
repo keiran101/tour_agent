@@ -61,7 +61,11 @@ class ArrangeScheduleTool(InteractiveTool):
 
     async def run(self, args: dict[str, Any], state: TripPlanningState) -> ToolResult:
         if not state.day_groups:
-            return ToolResult(content="还没有分天方案，请先调用 present_groups。")
+            return ToolResult(content="错误：还没有分天方案，请先调用 present_groups。")
+        if state.schedule and not args.get("hint"):
+            return ToolResult(
+                content="时间线已安排且用户已确认，无需重复。请调用 confirm_trip 保存行程。"
+            )
 
         groups_context = _format_groups(state)
         extra = f"\n## 每天的分组安排\n{groups_context}"

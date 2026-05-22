@@ -89,7 +89,7 @@ class TripPlanningState(BaseModel):
     trip_saved: bool = False
 
     def summary(self) -> str:
-        """~50 token summary injected into the Agent's system prompt."""
+        """~50 token status + next-step hint for the Agent's system prompt."""
         parts: list[str] = []
         if self.requirements.destination:
             r = self.requirements
@@ -104,7 +104,23 @@ class TripPlanningState(BaseModel):
             parts.append("时间线已排")
         if self.trip_saved:
             parts.append("行程已保存")
-        return " | ".join(parts) or "空白（尚未开始规划）"
+
+        status = " | ".join(parts) or "空白（尚未开始规划）"
+        return f"{status}\n下一步行动：{self.next_step_hint()}"
+
+    def next_step_hint(self) -> str:
+        """Tell the Agent what it should do next."""
+        if not self.requirements.destination:
+            return "用 ask_user 收集用户的旅行需求（目的地、天数、偏好等）"
+        if not self.selected_pois:
+            return "用 recommend_pois 搜索并推荐景点，让用户选择"
+        if not self.day_groups:
+            return "用 present_groups 将已选景点分配到各天，让用户确认"
+        if self.schedule is None:
+            return "用 arrange_schedule 安排每天的详细时间线"
+        if not self.trip_saved:
+            return "用 confirm_trip 保存行程"
+        return "行程已完成，自由对话即可"
 
     def preferences_prompt_section(self) -> str:
         """Format preferences as a system prompt section."""

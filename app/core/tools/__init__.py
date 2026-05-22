@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.core.tools.base import InteractiveTool, Tool, ToolRegistry, ToolResult
 from app.core.tools.map import RouteCalculatorTool
+from app.core.tools.memory_search import SearchMemoryTool
 from app.core.tools.poi import POISearchTool
 from app.core.tools.search import WebSearchTool
 from app.core.tools.trip import SaveTripTool
@@ -25,6 +26,7 @@ __all__ = [
     "WebSearchTool",
     "RouteCalculatorTool",
     "SaveTripTool",
+    "SearchMemoryTool",
     "create_tool_registry",
     "create_internal_tool_registry",
 ]
@@ -69,6 +71,8 @@ def create_tool_registry(
     registry.register(WeatherTool())
     registry.register(WebSearchTool())
     registry.register(RouteCalculatorTool())
+    if memory is not None:
+        registry.register(SearchMemoryTool(memory, user_id))
 
     # Interactive tools (need LLM service)
     if llm is not None:

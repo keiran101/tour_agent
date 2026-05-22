@@ -1,8 +1,7 @@
 """Long-term memory service using pgvector (self-implemented, no mem0).
 
-Stores and retrieves user preference memories via embedding similarity search.
-Uses PostgreSQL + pgvector for vector storage and OpenAI-compatible
-embedding API for vectorization.
+Stores and retrieves conversation summaries via embedding similarity search.
+Used for cross-session context retrieval (e.g. "我们之前聊过的杭州行程").
 
 Architecture:
   1. Embedding: AsyncOpenAI → BAAI/bge-m3 (1024-dim)
@@ -13,8 +12,10 @@ Uses sync psycopg + asyncio.to_thread() for cross-platform compatibility
 (Windows ProactorEventLoop doesn't support psycopg async mode).
 """
 
+from __future__ import annotations
+
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import psycopg
 from openai import AsyncOpenAI
@@ -24,12 +25,15 @@ from psycopg import sql
 from app.core.config import settings
 from app.core.logging import logger
 
-_SIMILARITY_THRESHOLD = 0.35
-_DEFAULT_TOP_K = 5
+if TYPE_CHECKING:
+    from app.services.llm.service import LLMService
+
+_SIMILARITY_THRESHOLD = 0.5
+_DEFAULT_TOP_K = 3
 
 
 class MemoryService:
-    """Self-implemented memory service using pgvector."""
+    """Conversation summary memory service using pgvector."""
 
     def __init__(self) -> None:
         self._initialized = False
@@ -69,6 +73,7 @@ class MemoryService:
                 CREATE TABLE IF NOT EXISTS {tbl} (
                     id         BIGSERIAL PRIMARY KEY,
                     user_id    VARCHAR(255) NOT NULL,
+                    session_id VARCHAR(255),
                     content    TEXT NOT NULL,
                     embedding  vector({dim}),
                     metadata   JSONB DEFAULT '{{}}'::jsonb,
@@ -89,10 +94,7 @@ class MemoryService:
     # ------------------------------------------------------------------
 
     async def search(self, user_id: str | None, query: str, top_k: int = _DEFAULT_TOP_K) -> str:
-        """Search relevant memories by embedding cosine similarity.
-
-        Returns formatted string for injection into system prompt.
-        """
+        """Search relevant conversation summaries by embedding cosine similarity."""
         if not user_id or not self._initialized:
             return ""
 
@@ -118,20 +120,25 @@ class MemoryService:
         self,
         user_id: str | None,
         messages: list[dict[str, Any]],
-        metadata: dict[str, Any] | None = None,
+        llm: LLMService | None = None,
+        session_id: str | None = None,
     ) -> None:
-        """Extract and store memory from conversation messages."""
+        """Summarize conversation via LLM and store as memory."""
         if not user_id or not self._initialized:
             return
 
-        memory_text = self._extract_memory(messages)
+        if llm:
+            memory_text = await self._summarize_conversation(messages, llm)
+        else:
+            memory_text = ""
+
         if not memory_text:
             return
 
         try:
             embedding = await self._embed(memory_text)
-            await asyncio.to_thread(self._add_db, user_id, memory_text, embedding)
-            logger.debug("memory_added", user_id=user_id, content_length=len(memory_text))
+            await asyncio.to_thread(self._add_db, user_id, session_id, memory_text, embedding)
+            logger.debug("memory_added", user_id=user_id, session_id=session_id, content_length=len(memory_text))
         except Exception as e:
             logger.warning("memory_add_failed", user_id=user_id, error=str(e))
 
@@ -154,15 +161,17 @@ class MemoryService:
             )
             return cur.fetchall()
 
-    def _add_db(self, user_id: str, content: str, embedding: list[float]) -> None:
+    def _add_db(self, user_id: str, session_id: str | None, content: str, embedding: list[float]) -> None:
+        import json
+        metadata = json.dumps({"session_id": session_id} if session_id else {}, ensure_ascii=False)
         with psycopg.connect(self._conninfo) as conn:
             register_vector(conn)
             conn.execute(
                 sql.SQL("""
-                    INSERT INTO {tbl} (user_id, content, embedding, metadata)
-                    VALUES (%s, %s, %s::vector, %s::jsonb)
+                    INSERT INTO {tbl} (user_id, session_id, content, embedding, metadata)
+                    VALUES (%s, %s, %s, %s::vector, %s::jsonb)
                 """).format(tbl=self._table),
-                (user_id, content, str(embedding), "{}"),
+                (user_id, session_id, content, str(embedding), metadata),
             )
             conn.commit()
 
@@ -180,29 +189,51 @@ class MemoryService:
         return response.data[0].embedding
 
     # ------------------------------------------------------------------
-    # Memory extraction
+    # Conversation summarization
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _extract_memory(messages: list[dict[str, Any]]) -> str:
-        """Extract memorable content from conversation messages.
+    _SUMMARIZE_PROMPT = (
+        "用一两句话概括以下对话的核心内容，重点描述：用户想规划什么行程、最终结果如何。\n"
+        "只输出摘要，不要加前缀或解释。如果对话没有实质内容，只输出：NONE"
+    )
 
-        Keeps user queries and assistant final answers (not tool-calling steps).
-        """
-        parts: list[str] = []
+    async def _summarize_conversation(
+        self, messages: list[dict[str, Any]], llm: LLMService,
+    ) -> str:
+        """Use LLM to generate a short conversation summary."""
+        conversation = []
         for msg in messages:
             role = msg.get("role", "")
             content = msg.get("content", "")
             if not content:
                 continue
             if role == "user":
-                parts.append(f"用户: {content}")
+                conversation.append(f"用户: {content}")
             elif role == "assistant" and "tool_calls" not in msg:
-                parts.append(f"助手: {content[:500]}")
+                conversation.append(f"助手: {content[:300]}")
 
-        if not parts:
+        if not conversation:
             return ""
-        return "\n".join(parts[-6:])
+
+        extract_messages = [
+            {"role": "system", "content": self._SUMMARIZE_PROMPT},
+            {"role": "user", "content": "\n".join(conversation[-10:])},
+        ]
+
+        try:
+            response = await llm.call(
+                messages=extract_messages,
+                tools=None,
+                temperature=0.0,
+                max_tokens=128,
+            )
+            result = (response.choices[0].message.content or "").strip()
+            if not result or result.upper() == "NONE":
+                return ""
+            return result
+        except Exception as e:
+            logger.warning("memory_summarize_failed", error=str(e))
+            return ""
 
 
 memory_service = MemoryService()

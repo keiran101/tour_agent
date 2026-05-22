@@ -17,9 +17,19 @@
       "allow_multiple": false
     }
   ],
-  "requirements": null
+  "requirements": {
+    "destination": "已知则填写，否则空字符串",
+    "duration_days": 3,
+    "budget_level": "",
+    "travel_style": [],
+    "group_type": "",
+    "special_requests": "",
+    "pace": "",
+    "travel_dates": ""
+  }
 }
 ```
+注意：gathering 阶段也必须返回 requirements，把已经从对话中提取到的信息填入，未知的留空。这样系统能跨轮次保持记忆。
 
 当信息已充足，可以开始规划时：
 ```json

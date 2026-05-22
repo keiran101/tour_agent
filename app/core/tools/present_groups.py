@@ -52,7 +52,11 @@ class PresentGroupsTool(InteractiveTool):
 
     async def run(self, args: dict[str, Any], state: TripPlanningState) -> ToolResult:
         if not state.selected_pois:
-            return ToolResult(content="用户还没有选择景点，请先调用 recommend_pois。")
+            return ToolResult(content="错误：用户还没有选择景点，请先调用 recommend_pois。")
+        if state.day_groups and not args.get("hint"):
+            return ToolResult(
+                content="分天方案已存在且用户已确认，无需重复。请调用 arrange_schedule 安排详细时间线。"
+            )
 
         poi_context = _format_pois(state.selected_pois)
         duration = state.requirements.duration_days or 3
