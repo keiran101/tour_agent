@@ -210,21 +210,22 @@ class AgentLoop:
                         name=f"tool:{tc.function.name}",
                         input=tc.function.arguments,
                     )
-                    result = await self._tools.execute(tc.function.name, tc.function.arguments)
-                    tool_span.update(output=result[:500]).end()
+                    tool_result = await self._tools.execute(tc.function.name, tc.function.arguments)
+                    result_text = tool_result.content
+                    tool_span.update(output=result_text[:500]).end()
 
-                    state.record_tool_call(tc.function.name, tc.function.arguments, result)
+                    state.record_tool_call(tc.function.name, tc.function.arguments, result_text)
                     state.messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": result,
+                        "content": result_text,
                     })
 
                     yield {
                         "type": "tool_result",
                         "step": state.step,
                         "tool": tc.function.name,
-                        "result": result,
+                        "result": result_text,
                     }
             else:
                 state.final_answer = extract_text_content(message.content or "")
@@ -292,16 +293,17 @@ class AgentLoop:
                     input=arguments,
                 ) if span else None
 
-                result = await self._tools.execute(tool_name, arguments)
-                state.record_tool_call(tool_name, arguments, result)
+                tool_result = await self._tools.execute(tool_name, arguments)
+                result_text = tool_result.content
+                state.record_tool_call(tool_name, arguments, result_text)
 
                 if tool_span:
-                    tool_span.update(output=result[:500]).end()
+                    tool_span.update(output=result_text[:500]).end()
 
                 state.messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": result,
+                    "content": result_text,
                 })
         else:
             state.final_answer = extract_text_content(message.content or "")

@@ -1,55 +1,79 @@
-"""Confirm executor — saves the finalized trip to database."""
+"""confirm_trip tool — saves the finalized trip to database.
 
-import json
+Wraps ConfirmExecutor logic: builds structured itinerary from state,
+calls SaveTripTool/TripService to persist, marks state as saved.
+"""
+
+from __future__ import annotations
+
 from typing import Any
 
-from app.core.agent.executors.base import BaseExecutor, ExecutorResult
+from app.core.agent.state import TripPlanningState
 from app.core.logging import logger
-from app.core.tools import create_tool_registry
-from app.schemas.builder import BuilderResponse, BuilderState
+from app.core.tools.base import InteractiveTool, ToolResult
+from app.schemas.trip import TripCreate
+from app.services.trip import TripService
 
 
-class ConfirmExecutor(BaseExecutor):
-    """Saves the finalized trip via the save_trip tool."""
+class ConfirmTripTool(InteractiveTool):
+    """Yield-to-user tool that saves the trip and returns confirmation."""
 
-    async def run(
+    name = "confirm_trip"
+    description = (
+        "Save the finalized trip itinerary to the database. "
+        "Call this after the user has confirmed the full schedule from arrange_schedule."
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    def __init__(
         self,
-        messages: list[dict[str, Any]],
-        state: BuilderState,
-    ) -> ExecutorResult:
-        """Show confirmation card, or save trip if user already confirmed."""
+        trip_service: TripService,
+        user_id: int,
+        session_id: str | None = None,
+    ) -> None:
+        self._trip_service = trip_service
+        self._user_id = user_id
+        self._session_id = session_id
+
+    async def run(self, args: dict[str, Any], state: TripPlanningState) -> ToolResult:
         if not state.schedule:
-            return ExecutorResult(message="还没有完成时间安排，无法保存。")
+            return ToolResult(content="还没有完成时间安排，请先调用 arrange_schedule。")
 
         destination = state.requirements.destination
         total_days = state.requirements.duration_days or len(state.schedule.days)
         title = f"{destination}{total_days}日游"
 
-        if not state.confirmed:
-            builder_resp = BuilderResponse(layer="confirm", data=state.schedule)
-            return ExecutorResult(
-                message=f"行程安排已完成！请确认 {title} 的整体方案，确认无误后我帮你保存到行程列表。",
-                builder_response=builder_resp,
-            )
-
-        tools = create_tool_registry(user_id=self._user_id, session_id=self._session_id)
         save_args = _build_save_trip_args(state, destination, total_days, title)
-        tool_result = await tools.execute("save_trip", json.dumps(save_args, ensure_ascii=False))
-        result = tool_result.content
 
-        logger.info("confirm_saved", result=result[:200])
+        try:
+            data = TripCreate(**save_args)
+            trip = await self._trip_service.create(
+                user_id=self._user_id,
+                data=data,
+                session_id=self._session_id,
+            )
+            state.trip_saved = True
+            logger.info("confirm_trip_saved", trip_id=trip.id, destination=destination)
 
-        message = f"行程已保存！{title} — 你可以随时在「我的行程」中查看和修改。"
-        return ExecutorResult(message=message)
+            message = f"行程已保存！{title} — 你可以随时在「我的行程」中查看和修改。"
+            return ToolResult(content=message, yield_to_user=True)
+
+        except Exception as e:
+            logger.error("confirm_trip_failed", error=str(e))
+            return ToolResult(content=f"保存行程失败：{e}")
 
 
 def _build_save_trip_args(
-    state: BuilderState,
+    state: TripPlanningState,
     destination: str,
     total_days: int,
     title: str,
 ) -> dict[str, Any]:
-    poi_map = {p.id: p for p in state.all_pois}
+    poi_map = {p.id: p for p in state.search_results}
     days = []
     for day_sched in (state.schedule.days if state.schedule else []):
         activities = []
